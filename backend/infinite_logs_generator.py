@@ -290,7 +290,7 @@ def generate_benign_log(timestamp):
 
     log_entry = {
         "timestamp": timestamp,
-        "level": random.choice(["INFO", "DEBUG"]),
+        "level": random.choice(["INFO", "DEBUG"]),  
         "source_ip": random_ip("internal"),
         "destination_ip": random_ip(),
         "source_port": random_port(),

@@ -1,4 +1,5 @@
-import mongoose from 'mongoose';
+import mongoose from 'mongoose'; //mongodb connection
+// import sqlite3 from 'sqlite3'; //sqlite connection
 
 const connectDB = async () => {
   try {

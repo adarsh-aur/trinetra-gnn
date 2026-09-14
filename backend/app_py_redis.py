@@ -52,6 +52,7 @@ def convert_to_ist(timestamp):
         return ist_time.strftime("%Y-%m-%d %H:%M:%S IST")
     except (ValueError, OSError, OverflowError):
         return None
+    # ist  =  gmt + 5.30  
 
 
 def llm_categorize_nodes(nodes_data, raw_logs):
@@ -487,10 +488,17 @@ def ingest_file():
 
     return process_and_emit(raw)
 
-
+# -----------------------------------------------------
+#bug fixed maxsize limit provided for large log files to avoid 413 error
 @app.route("/ingest_text", methods=["POST"])
 def ingest_text():
-    """Ingest logs from HTTP request body"""
+    MAX_SIZE = int(os.getenv("MAX_LOG_SIZE_MB", 10)) * 512 * 512  # 10 MB default
+    if request.content_length and request.content_length > MAX_SIZE:
+        return jsonify({
+            "status": "error",
+            "message": f"Request too large. Maximum allowed size is {MAX_SIZE // (512*512)} MB."
+        }), 413
+
     raw = request.json.get("logs", "")
     if not raw:
         return jsonify({
@@ -499,6 +507,8 @@ def ingest_text():
         }), 400
 
     return process_and_emit(raw)
+# -----------------------------------------------------
+
 
 
 def process_and_emit(raw_logs):

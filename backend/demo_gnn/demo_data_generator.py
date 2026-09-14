@@ -12,11 +12,11 @@ class DemoDataGenerator:
     
     def _generate_ip_list(self, count):
         """Generate fake IPs for demo"""
-        return [f"192.168.{random.randint(1,255)}.{random.randint(1,255)}" 
+        return [f"192.168.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}" 
                 for _ in range(count)]
     
     def generate_normal_traffic(self):
-        """Generate normal network traffic graph"""
+        """Generate normal network traffic graph""" 
         num_nodes = random.randint(15, 25)
         
         node_features = []
@@ -64,6 +64,10 @@ class DemoDataGenerator:
         graph.attack_type = 'Normal Traffic'  # Add to all graphs
         graph.node_labels = node_labels
         
+        # Placeholder for RGCN
+        # If we had multiple edge types, we would generate them here.
+        graph.edge_type = torch.zeros(edge_index.size(1), dtype=torch.long)
+        
         return graph
     
     def generate_attack_traffic(self, attack_type='ddos'):
@@ -105,7 +109,7 @@ class DemoDataGenerator:
             node_labels.append(f"{self.malicious_ips[i % len(self.malicious_ips)]} [ATTACKER]")
         
         # Normal nodes
-        for i in range(num_normal):
+        for i in range(num_attackers + 1, total_nodes):
             node_features.append([
                 random.choice([80, 443]) / 65535,
                 random.randint(10, 50) / 1000,
@@ -132,6 +136,9 @@ class DemoDataGenerator:
         graph.attack_type = 'DDoS'
         graph.node_labels = node_labels
         
+        # Placeholder for RGCN
+        graph.edge_type = torch.zeros(edge_index.size(1), dtype=torch.long)
+
         return graph
     
     def _generate_port_scan(self):
@@ -170,6 +177,9 @@ class DemoDataGenerator:
         graph.label = 1
         graph.attack_type = 'Port Scan'
         graph.node_labels = node_labels
+
+        # Placeholder for RGCN
+        graph.edge_type = torch.zeros(edge_index.size(1), dtype=torch.long)
         
         return graph
     
@@ -219,6 +229,9 @@ class DemoDataGenerator:
         graph.label = 1
         graph.attack_type = 'Data Exfiltration'
         graph.node_labels = node_labels
+
+        # Placeholder for RGCN
+        graph.edge_type = torch.zeros(edge_index.size(1), dtype=torch.long)
         
         return graph
     

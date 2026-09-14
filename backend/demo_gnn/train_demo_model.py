@@ -1,19 +1,35 @@
 import torch
 from torch_geometric.loader import DataLoader
-from backend.demo_gnn.simple_gnn_demo import SimpleCyberGNN
-from backend.demo_gnn.demo_data_generator import DemoDataGenerator
+# The import path must be adapted based on where you run it.
+try:
+    from simple_gnn_demo import HybridCyberGNN # UPDATED CLASS NAME
+    from demo_data_generator import DemoDataGenerator
+except ImportError:
+    try:
+        from backend.demo_gnn.simple_gnn_demo import HybridCyberGNN
+        from backend.demo_gnn.demo_data_generator import DemoDataGenerator
+    except ImportError:
+        # Fallback for complex environment setup
+        from simple_gnn_demo import HybridCyberGNN
+        from demo_data_generator import DemoDataGenerator
+
 import os
 
+# Train function now uses the fixed Hybrid model
 def train_demo_model():
-    """Train model on synthetic data for demo"""
-    print("🚀 Generating training data...")
+    """Train the Hybrid GNN model on synthetic data for demo"""
+    MODEL_NAME = 'HYBRID' # Fixed name for saving
+    print(f"🚀 Generating training data for {MODEL_NAME} model...")
     generator = DemoDataGenerator()
     graphs, labels = generator.generate_dataset(num_normal=200, num_attacks=200)
     
-    # Add labels to graphs
+    # Add labels and placeholder for RGCN relation count
     print("   Adding labels to graphs...")
+    num_relations = 1 # Required for RGCNConv initialization in the Hybrid model
     for i, graph in enumerate(graphs):
         graph.y = torch.tensor([labels[i]], dtype=torch.long)
+        # Ensure all graphs have the relation count needed by the Hybrid model
+        graph.num_relations = num_relations 
     
     # Split data
     print("   Splitting into train/test sets...")
@@ -25,11 +41,23 @@ def train_demo_model():
     test_loader = DataLoader(test_graphs, batch_size=32, shuffle=False)
     
     # Initialize model
-    print("\n🏗️ Initializing model...")
+    print(f"\n🏗️ Initializing {MODEL_NAME} GNN model (GAT+GCN+SAGE+RGCN)...")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"   Using device: {device}")
     
-    model = SimpleCyberGNN(input_dim=8, hidden_dim=32, output_dim=2).to(device)
+    # Parameters matching the data generator features
+    INPUT_DIM = 8
+    HIDDEN_DIM = 32
+    OUTPUT_DIM = 2
+
+    # Initialize the Hybrid model
+    model = HybridCyberGNN(
+        input_dim=INPUT_DIM, 
+        hidden_dim=HIDDEN_DIM, 
+        output_dim=OUTPUT_DIM, 
+        num_relations=num_relations
+    ).to(device)
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
     criterion = torch.nn.NLLLoss()
     
@@ -84,16 +112,20 @@ def train_demo_model():
     
     # Save model
     os.makedirs('models', exist_ok=True)
+    
+    MODEL_FILENAME = f'models/demo_gnn_model_{MODEL_NAME}.pt' # Saving with HYBRID name
     torch.save({
         'model_state_dict': model.state_dict(),
-        'input_dim': 8,
-        'hidden_dim': 32,
-        'output_dim': 2,
+        'input_dim': INPUT_DIM,
+        'hidden_dim': HIDDEN_DIM,
+        'output_dim': OUTPUT_DIM,
+        'model_type': MODEL_NAME, 
+        'num_relations': num_relations,
         'test_accuracy': test_accuracy
-    }, 'models/demo_gnn_model.pt')
+    }, MODEL_FILENAME)
     
-    print("💾 Model saved to models/demo_gnn_model.pt")
-    print(f"\n🎉 Training complete! Accuracy: {test_accuracy*100:.2f}%")
+    print(f"💾 Model saved to {MODEL_FILENAME}")
+    print(f"\n🎉 Training complete! {MODEL_NAME} Accuracy: {test_accuracy*100:.2f}%")
     return model
 
 if __name__ == "__main__":

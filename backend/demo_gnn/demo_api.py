@@ -19,25 +19,28 @@ for path in [str(current_dir), str(backend_dir), str(project_root)]:
         sys.path.insert(0, path)
 
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask_cors import CORS   
 import torch
 
 # Smart imports with multiple fallback options for cross-platform compatibility
 try:
     # Try relative import (when run as module)
-    from simple_gnn_demo import SimpleCyberGNN
+    from simple_gnn_demo import HybridCyberGNN # UPDATED CLASS NAME
     from demo_data_generator import DemoDataGenerator
 except ImportError:
     try:
         # Try from demo_gnn package
-        from demo_gnn.simple_gnn_demo import SimpleCyberGNN
+        from demo_gnn.simple_gnn_demo import HybridCyberGNN
         from demo_gnn.demo_data_generator import DemoDataGenerator
     except ImportError:
         # Try absolute import from backend
-        from backend.demo_gnn.simple_gnn_demo import SimpleCyberGNN
+        from backend.demo_gnn.simple_gnn_demo import HybridCyberGNN
         from backend.demo_gnn.demo_data_generator import DemoDataGenerator
 
 import json
+from torch_geometric.data import Data, Batch 
+import numpy as np
+import traceback
 
 app = Flask(__name__)
 CORS(app)
@@ -47,20 +50,23 @@ model = None
 checkpoint = None
 generator = None
 model_loaded = False
+MODEL_FILENAME = 'demo_gnn_model.pt' # Target model file
 
 def initialize_model():
     """Initialize model with proper error handling"""
     global model, checkpoint, generator, model_loaded
     
     try:
-        print("🔍 Loading model...")
+        print("🔍 Loading Hybrid GNN model...")
         
-        # Find model path dynamically
+        # Prioritize the HYBRID model, then check for older single-type models
         possible_paths = [
-            current_dir / 'models' / 'demo_gnn_model.pt',
-            backend_dir / 'models' / 'demo_gnn_model.pt',
-            project_root / 'models' / 'demo_gnn_model.pt',
-            Path('models/demo_gnn_model.pt'),
+            current_dir / 'models' / MODEL_FILENAME, # New Hybrid model (Primary target)
+            current_dir / 'models' / 'demo_gnn_model_GCN.pt', 
+            current_dir / 'models' / 'demo_gnn_model_RGCN.pt',
+            current_dir / 'models' / 'demo_gnn_model_GAT.pt',
+            current_dir / 'models' / 'demo_gnn_model.pt', 
+            Path('models') / MODEL_FILENAME
         ]
         
         model_path = None
@@ -69,32 +75,72 @@ def initialize_model():
                 model_path = path
                 break
         
+        # Default parameters for demo mode
+        default_params = {
+            'input_dim': 8,
+            'hidden_dim': 32,
+            'output_dim': 2,
+            'model_type': 'HYBRID', # Fixed to HYBRID
+            'num_relations': 1,
+            'test_accuracy': 0.95,
+        }
+        
         if model_path is None:
-            print("⚠️  Model file not found, running in demo mode without trained weights")
-            # Initialize with default parameters
-            model = SimpleCyberGNN(input_dim=10, hidden_dim=64, output_dim=2)
-            checkpoint = {'test_accuracy': 0.95, 'input_dim': 10, 'hidden_dim': 64, 'output_dim': 2}
+            print("⚠️  Hybrid model file not found, running in demo mode without trained weights")
+            checkpoint = default_params
+            
+            # Initialize Hybrid model with default params
+            model = HybridCyberGNN(
+                input_dim=checkpoint['input_dim'],
+                hidden_dim=checkpoint['hidden_dim'],
+                output_dim=checkpoint['output_dim'],
+                num_relations=checkpoint['num_relations']
+            )
             model_loaded = False
         else:
             print(f"✓ Found model at: {model_path}")
-            checkpoint = torch.load(str(model_path))
-            model = SimpleCyberGNN(
-                input_dim=checkpoint['input_dim'],
-                hidden_dim=checkpoint['hidden_dim'],
-                output_dim=checkpoint['output_dim']
+            checkpoint = torch.load(str(model_path), map_location=torch.device('cpu'))
+
+            # Extract parameters, defaulting for compatibility with older saves
+            input_dim = checkpoint.get('input_dim', 8)
+            hidden_dim = checkpoint.get('hidden_dim', 32)
+            output_dim = checkpoint.get('output_dim', 2)
+            num_relations = checkpoint.get('num_relations', 1)
+            
+            # We initialize the HybridCyberGNN class as requested, regardless of old checkpoint type
+            # The structure might differ if the checkpoint isn't HYBRID, but we attempt to load
+            # as the user wants the new architecture.
+            model = HybridCyberGNN(
+                input_dim=input_dim,
+                hidden_dim=hidden_dim,
+                output_dim=output_dim,
+                num_relations=num_relations
             )
+
             model.load_state_dict(checkpoint['model_state_dict'])
             model_loaded = True
         
         model.eval()
         generator = DemoDataGenerator()
-        print("✓ Model initialized successfully")
+        print(f"✓ Model initialized successfully (Architecture: {model.__class__.__name__})")
         
     except Exception as e:
         print(f"⚠️  Error loading model: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         print("Running in demo mode with default parameters")
-        model = SimpleCyberGNN(input_dim=10, hidden_dim=64, output_dim=2)
-        checkpoint = {'test_accuracy': 0.95, 'input_dim': 10, 'hidden_dim': 64, 'output_dim': 2}
+        
+        # Re-initialize in case of error
+        default_params = {
+            'input_dim': 8, 'hidden_dim': 32, 'output_dim': 2, 
+            'model_type': 'HYBRID', 'num_relations': 1, 'test_accuracy': 0.95
+        }
+        checkpoint = default_params
+        model = HybridCyberGNN(
+            input_dim=default_params['input_dim'], 
+            hidden_dim=default_params['hidden_dim'], 
+            output_dim=default_params['output_dim'],
+            num_relations=default_params['num_relations']
+        )
         generator = DemoDataGenerator()
         model_loaded = False
 
@@ -105,8 +151,8 @@ initialize_model()
 def root():
     """Root endpoint"""
     return jsonify({
-        'message': 'GNN Demo API - Multi-Cloud Threat Analyzer',
-        'version': '1.0.0',
+        'message': 'Hybrid GNN Demo API - Multi-Cloud Threat Analyzer',
+        'version': '3.0.0', 
         'status': 'online',
         'endpoints': {
             'health': '/api/health',
@@ -121,8 +167,9 @@ def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'service': 'GNN Demo API',
+        'service': 'Hybrid GNN Demo API',
         'model_loaded': model_loaded,
+        'model_type': model.__class__.__name__, # Show actual model class name
         'test_accuracy': checkpoint.get('test_accuracy', 'N/A'),
         'working_directory': str(current_dir)
     })
@@ -184,8 +231,13 @@ def analyze_traffic():
         edges = [[e['source'], e['target']] for e in data['edges']]
         edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
         
-        from torch_geometric.data import Data, Batch
+        # Create Data object
         graph = Data(x=x, edge_index=edge_index)
+        
+        # Add necessary properties for Hybrid model (RGCN branch requires these)
+        graph.edge_type = torch.zeros(edge_index.size(1), dtype=torch.long)
+        graph.num_relations = 1
+            
         graph.batch = torch.zeros(graph.num_nodes, dtype=torch.long)
         
         # Make prediction
@@ -197,9 +249,18 @@ def analyze_traffic():
         
         # Identify suspicious nodes (high activation)
         suspicious_nodes = []
+        # Calculate mean/std based on current embeddings batch
+        emb_mean = embeddings.mean()
+        emb_std = embeddings.std()
+        
         for i, emb in enumerate(embeddings):
-            activation = float(torch.tensor(emb).norm())
-            if activation > embeddings.mean() + embeddings.std():
+            if isinstance(emb, np.ndarray):
+                activation = float(np.linalg.norm(emb))
+            else:
+                activation = float(torch.tensor(emb).norm()) 
+                
+            # Use 1.5 standard deviations above the mean as a simple heuristic
+            if activation > emb_mean + 1.5 * emb_std:
                 suspicious_nodes.append({
                     'node_id': i,
                     'label': data['nodes'][i]['label'],
@@ -214,15 +275,18 @@ def analyze_traffic():
             'suspicious_nodes': sorted(suspicious_nodes, key=lambda x: x['activation'], reverse=True)[:5],
             'total_nodes': graph.num_nodes,
             'total_edges': graph.num_edges,
+            # embeddings is a numpy array, convert to list for JSON
             'embeddings': embeddings.tolist()
         }
         
         return jsonify(result)
     
     except Exception as e:
+        import traceback
         return jsonify({
             'error': str(e),
-            'message': 'Failed to analyze traffic'
+            'message': 'Failed to analyze traffic',
+            'traceback': traceback.format_exc()
         }), 500
 
 @app.route('/api/stats', methods=['GET'])
@@ -231,7 +295,7 @@ def get_stats():
     return jsonify({
         'model_accuracy': checkpoint.get('test_accuracy', 0.95),
         'total_parameters': sum(p.numel() for p in model.parameters()),
-        'architecture': 'GAT-based Hybrid GNN',
+        'architecture': f"Hybrid GNN (GAT+GCN+SAGE+RGCN)", # Updated architecture name
         'training_samples': 400,
         'attack_types': ['DDoS', 'Port Scan', 'Data Exfiltration'],
         'model_loaded': model_loaded
@@ -241,17 +305,18 @@ if __name__ == '__main__':
     # Print banner with proper encoding handling
     try:
         print("\n" + "=" * 70)
-        print("🚀 GNN Demo API Server Starting...")
+        print("🚀 Hybrid GNN Demo API Server Starting...")
         print("=" * 70)
     except UnicodeEncodeError:
         print("\n" + "=" * 70)
-        print("GNN Demo API Server Starting...")
+        print("Hybrid GNN Demo API Server Starting...")
         print("=" * 70)
     
     print(f"📁 Working Directory: {current_dir}")
     print(f"🐍 Python Path: {sys.path[0]}")
     print(f"🌐 Server running on: http://localhost:5001")
     print(f"✓ Model Status: {'Loaded' if model_loaded else 'Demo Mode'}")
+    print(f"🧠 Model Type: {model.__class__.__name__}") 
     print("\n📊 Available Endpoints:")
     print("   - GET  /                     (Root)")
     print("   - GET  /api/health            (Health Check)")
